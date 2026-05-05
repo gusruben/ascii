@@ -41,32 +41,7 @@
 	let pinchMidY = 0;
 	let pinchPending = false;
 
-	// ─── Temp debug logger ────────────────────────────────────────────────
-	// Batches log lines and POSTs them to /api/tlog every ~200ms. Server
-	// appends to /tmp/mandelbrot-touch.log; read with `curl /api/tlog` (or
-	// `?clear=1` to wipe). Each line is `[wallclock] tag: payload`.
-	const LOG_BUF: string[] = [];
-	let logFlushTimer: ReturnType<typeof setTimeout> | null = null;
-	function tlog(tag: string, payload: Record<string, unknown>) {
-		try {
-			LOG_BUF.push(`${tag} ${JSON.stringify(payload)}`);
-		} catch {
-			LOG_BUF.push(`${tag} [unserializable]`);
-		}
-		if (logFlushTimer === null) {
-			logFlushTimer = setTimeout(flushLogs, 200);
-		}
-	}
-	function flushLogs() {
-		logFlushTimer = null;
-		if (LOG_BUF.length === 0) return;
-		const body = LOG_BUF.join('\n');
-		LOG_BUF.length = 0;
-		// keepalive lets the request survive page hide / nav.
-		fetch('/api/tlog', { method: 'POST', body, keepalive: true }).catch(() => {});
-	}
-
-	// Corner-sampled smooth iteration grid, (W+1) × (H+1). Negative = inside set.
+// Corner-sampled smooth iteration grid, (W+1) × (H+1). Negative = inside set.
 	let corners = new Float32Array(0);
 	let cornerW = 0;
 	let cornerH = 0;
@@ -257,16 +232,6 @@
 				const t = e.changedTouches[i];
 				touchPos.set(t.identifier, { x: t.clientX, y: t.clientY });
 			}
-			tlog('touchstart', {
-				changed: Array.from(e.changedTouches).map((t) => ({
-					id: t.identifier,
-					x: Math.round(t.clientX),
-					y: Math.round(t.clientY)
-				})),
-				active: Array.from(e.touches).map((t) => t.identifier),
-				mapKeys: Array.from(touchPos.keys()),
-				scale
-			});
 		};
 		const touchMove = (e: TouchEvent) => {
 			e.preventDefault();
@@ -281,26 +246,11 @@
 					touchPanDY += dy;
 				}
 				touchPos.set(t.identifier, { x: t.clientX, y: t.clientY });
-				tlog('move1', {
-					id: t.identifier,
-					x: Math.round(t.clientX),
-					y: Math.round(t.clientY),
-					hasPrev: !!prev,
-					dx: Math.round(dx),
-					dy: Math.round(dy),
-					accumDX: Math.round(touchPanDX),
-					accumDY: Math.round(touchPanDY)
-				});
 			} else if (touches.length >= 2) {
 				const t0 = touches[0];
 				const t1 = touches[1];
 				const prev0 = touchPos.get(t0.identifier);
 				const prev1 = touchPos.get(t1.identifier);
-				let logPrevDist = 0;
-				let logDist = 0;
-				let logFactor = 1;
-				let logDMX = 0;
-				let logDMY = 0;
 				if (prev0 && prev1) {
 					const prevDist = Math.hypot(prev0.x - prev1.x, prev0.y - prev1.y);
 					const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
@@ -308,12 +258,7 @@
 					const prevMidY = (prev0.y + prev1.y) / 2;
 					const midX = (t0.clientX + t1.clientX) / 2;
 					const midY = (t0.clientY + t1.clientY) / 2;
-					logPrevDist = prevDist;
-					logDist = dist;
 					if (prevDist > 0 && dist > 0) {
-						logFactor = prevDist / dist;
-						logDMX = midX - prevMidX;
-						logDMY = midY - prevMidY;
 						pinchFactor *= prevDist / dist;
 						touchPanDX += midX - prevMidX;
 						touchPanDY += midY - prevMidY;
@@ -324,33 +269,12 @@
 				}
 				touchPos.set(t0.identifier, { x: t0.clientX, y: t0.clientY });
 				touchPos.set(t1.identifier, { x: t1.clientX, y: t1.clientY });
-				tlog('move2', {
-					ids: [t0.identifier, t1.identifier],
-					hasPrev0: !!prev0,
-					hasPrev1: !!prev1,
-					prevDist: Math.round(logPrevDist),
-					dist: Math.round(logDist),
-					stepFactor: +logFactor.toFixed(4),
-					accumFactor: +pinchFactor.toFixed(4),
-					dMidX: Math.round(logDMX),
-					dMidY: Math.round(logDMY),
-					accumDX: Math.round(touchPanDX),
-					accumDY: Math.round(touchPanDY)
-				});
 			}
 		};
 		const touchEnd = (e: TouchEvent) => {
-			const removed: number[] = [];
 			for (let i = 0; i < e.changedTouches.length; i++) {
-				const id = e.changedTouches[i].identifier;
-				touchPos.delete(id);
-				removed.push(id);
+				touchPos.delete(e.changedTouches[i].identifier);
 			}
-			tlog(e.type, {
-				removed,
-				active: Array.from(e.touches).map((t) => t.identifier),
-				mapKeys: Array.from(touchPos.keys())
-			});
 		};
 
 		window.addEventListener('mousedown', down);
@@ -446,9 +370,6 @@
 		if (touchPanDX !== 0 || touchPanDY !== 0 || pinchPending) {
 			const preEl = document.querySelector('pre') as HTMLElement | null;
 			const rect = preEl?.getBoundingClientRect();
-			const beforeCx = cx;
-			const beforeCy = cy;
-			const beforeScale = scale;
 			if (rect && rect.width > 0) {
 				const cpp = (2 * scale) / rect.width;
 				cx -= touchPanDX * cpp;
@@ -464,26 +385,6 @@
 					cy = wy - oy * ncpp;
 				}
 			}
-			tlog('consume', {
-				panDX: Math.round(touchPanDX),
-				panDY: Math.round(touchPanDY),
-				pinchPending,
-				factor: +pinchFactor.toFixed(4),
-				rectW: rect ? Math.round(rect.width) : null,
-				rectH: rect ? Math.round(rect.height) : null,
-				rectL: rect ? Math.round(rect.left) : null,
-				rectT: rect ? Math.round(rect.top) : null,
-				midX: Math.round(pinchMidX),
-				midY: Math.round(pinchMidY),
-				beforeCx: +beforeCx.toFixed(8),
-				beforeCy: +beforeCy.toFixed(8),
-				beforeScale: +beforeScale.toExponential(4),
-				afterCx: +cx.toFixed(8),
-				afterCy: +cy.toFixed(8),
-				afterScale: +scale.toExponential(4),
-				dCx: +(cx - beforeCx).toExponential(3),
-				dCy: +(cy - beforeCy).toExponential(3)
-			});
 			touchPanDX = 0;
 			touchPanDY = 0;
 			pinchFactor = 1;
