@@ -24,11 +24,23 @@ export interface AsciiRuntime {
  * `effect` once per animation frame. Returns the `AsciiApi` in case the caller
  * needs imperative access, plus a `destroy()` cleanup for Svelte onMount.
  */
+export interface AsciiRuntimeOptions {
+	/**
+	 * Mirror touch events onto the `mouse` state so any effect that reads
+	 * `c.mouse.*` works on touchscreens without modification. Defaults to
+	 * true. Set false if the effect handles touch itself (e.g. multitouch
+	 * or a custom gesture model).
+	 */
+	touch?: boolean;
+}
+
 export function createAsciiRuntime(
 	wrapEl: HTMLDivElement,
 	preEl: HTMLPreElement,
-	effect: Effect
+	effect: Effect,
+	opts: AsciiRuntimeOptions = {}
 ): AsciiRuntime {
+	const enableTouch = opts.touch !== false;
 	// ─── Profile gate ──────────────────────────────────────────────────
 	// Enabled either by Vite env (build-time, eliminated by DCE in prod)
 	// or by `?profile=1` in the URL. When false, every guarded block is a
@@ -1132,6 +1144,41 @@ export function createAsciiRuntime(
 
 	preEl.addEventListener('mousemove', onMouseMove);
 
+	function setMouseFromClient(clientX: number, clientY: number, snapPrev: boolean) {
+		const fx = (clientX - preRect.left) / cellW;
+		const fy = (clientY - preRect.top) / cellH;
+		const x = Math.floor(fx);
+		const y = Math.floor(fy);
+		if (snapPrev) {
+			mouse.px = x;
+			mouse.py = y;
+		} else {
+			mouse.px = mouse.x;
+			mouse.py = mouse.y;
+		}
+		mouse.fx = fx;
+		mouse.fy = fy;
+		mouse.x = x;
+		mouse.y = y;
+	}
+	function onTouchStart(e: TouchEvent) {
+		if (e.touches.length === 0) return;
+		e.preventDefault();
+		const t = e.touches[0];
+		setMouseFromClient(t.clientX, t.clientY, true);
+	}
+	function onTouchMove(e: TouchEvent) {
+		if (e.touches.length === 0) return;
+		e.preventDefault();
+		const t = e.touches[0];
+		setMouseFromClient(t.clientX, t.clientY, false);
+	}
+	if (enableTouch) {
+		preEl.style.touchAction = 'none';
+		preEl.addEventListener('touchstart', onTouchStart, { passive: false });
+		preEl.addEventListener('touchmove', onTouchMove, { passive: false });
+	}
+
 	const onKeyDown = (e: KeyboardEvent) => {
 		if (!keysDown.has(e.key)) keysPressedThisFrame.add(e.key);
 		keysDown.add(e.key);
@@ -1150,6 +1197,10 @@ export function createAsciiRuntime(
 			cancelAnimationFrame(rafId);
 			ro.disconnect();
 			preEl.removeEventListener('mousemove', onMouseMove);
+			if (enableTouch) {
+				preEl.removeEventListener('touchstart', onTouchStart);
+				preEl.removeEventListener('touchmove', onTouchMove);
+			}
 			window.removeEventListener('scroll', updateRect);
 			window.removeEventListener('resize', updateRect);
 			window.removeEventListener('keydown', onKeyDown);

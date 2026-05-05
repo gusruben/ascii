@@ -4,13 +4,17 @@
 	import { DEFAULT_FG, FONT_FAMILY, FONT_SIZE_PX } from './constants';
 	import type { Effect } from './types';
 
-	let { effect, selectable = true }: { effect: Effect; selectable?: boolean } = $props();
+	let {
+		effect,
+		selectable = true,
+		touch = true
+	}: { effect: Effect; selectable?: boolean; touch?: boolean } = $props();
 
 	let wrapEl: HTMLDivElement;
 	let preEl: HTMLPreElement;
 
 	onMount(() => {
-		const runtime = createAsciiRuntime(wrapEl, preEl, effect);
+		const runtime = createAsciiRuntime(wrapEl, preEl, effect, { touch });
 		return runtime.destroy;
 	});
 </script>
