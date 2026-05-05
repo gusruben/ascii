@@ -16,7 +16,7 @@
 </script>
 
 <svelte:head>
-	<title>effect-experiments</title>
+	<title>ascii</title>
 </svelte:head>
 
 <main class="min-h-screen bg-white p-4 font-mono text-black">
